@@ -13,10 +13,9 @@ namespace RoboArm
 {
     public partial class UI : Form
     {
-
         SerialPort mSerialPort;
 
-        const String mPortName = "COM5";
+        const String mPortName = "COM4";
         const int mBaudRate = 57600;
         const Parity mParity = Parity.None;
         const int mDataBits = 8;
@@ -24,19 +23,8 @@ namespace RoboArm
 
         BackgroundWorker worker = new BackgroundWorker();
 
-        Joint[] joints = new Joint[6];
-        const double MAXR = 360;
-        const double RSCALE = 1;
-
-
-int[] startingAngles = {
-  65,
-  107,
-  45,
-  145,
-  90,
-  90
-};
+        String keysDown = "";
+        Arm arm = new Arm();
 
         public UI()
         {
@@ -53,12 +41,6 @@ int[] startingAngles = {
 
             worker.DoWork += new DoWorkEventHandler(this.Async);
             worker.RunWorkerAsync();
-
-            for(int i=0; i<joints.Length; i++)
-            {
-                joints[i] = new Joint();
-                joints[i].rot = startingAngles[i];
-            }
         }
 
         private long currentTimeMilis()
@@ -66,76 +48,56 @@ int[] startingAngles = {
             return DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
         }
 
-        private double rectify(double i)
-        {
-            while (i >= MAXR * RSCALE)
-            {
-                i -= MAXR * RSCALE;
-            }
-
-            while (i < 0)
-            {
-                i += MAXR * RSCALE;
-            }
-
-            return i;
-        }
-
         private void Async(object sender, DoWorkEventArgs e)
         {
             var last = currentTimeMilis();
             while (true)
             {
-                lock (joints)
+                lock (arm)
                 {
-                    StringBuilder keys = new StringBuilder();
-                    StringBuilder angles = new StringBuilder();
-                    var now = currentTimeMilis();
-
-                    int index = 0;
-                    foreach (Joint j in joints)
-                    {
-                        var ans = j.peek();
-                        keys.Append(ans[0]).Append(ans[1]).Append("\r\n");
-
-                        var rate = 10.0;
-                        var dt = (now - last) / 1000.0;
-                        //Console.WriteLine(dt);
-
-                        //Console.Write(ans[0]+""+ans[1] + index + "\n");
-                        //Console.Write(j.rot +":"+ index + "\n");
-                        if(ans[0])  //plus
-                        {
-                            j.rot = rectify(j.rot + (rate * dt * RSCALE));
-                        }else if (ans[1])
-                        {
-                            j.rot = rectify(j.rot - (rate * dt * RSCALE));
-                        }
-
-                        double rot = j.rot;
-                        angles.Append("_").Append(index).Append(",").Append(rot).Append(";");
-
-                        index++;
-                    }
                     last = currentTimeMilis();
+                    StringBuilder angles = new StringBuilder();
 
-                    label1.Text = keys.ToString();
+                    float[]
 
-                    String msg = angles.ToString();
-                    mSerialPort.Write(msg);
-                    label2.Text = msg;
+                    angles.Append("_").Append(index).Append(",").Append(rot).Append(";");
+
+                    //label1.Text = keys.ToString();
+
+                    //String msg = angles.ToString();
+                    //mSerialPort.Write(msg);
+                    //label2.Text = msg;
                 }
             }
         }
 
+        private string parseKey(string k)
+        {
+            return ("." + k + ".").ToUpper();
+        }
+
+        private bool keyDown(string k)
+        {
+            k = k.ToUpper();
+            return keysDown.Contains(parseKey(k));
+        }
+
         private void handleKeyDown(object sender, KeyEventArgs e)
         {
-
+            String key = parseKey(e.KeyCode.ToString()); 
+            if(!keysDown.Contains(key))
+            {
+                keysDown += key;
+            }
         }
 
         private void handleKeyUp(object sender, KeyEventArgs e)
         {
-
+            String key = parseKey(e.KeyCode.ToString());
+            if (!keysDown.Contains(key))
+            {
+                keysDown += key;
+            }
         }
 
         //private void UI_KeyDown(object sender, KeyEventArgs e)

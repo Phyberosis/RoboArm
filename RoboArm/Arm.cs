@@ -14,16 +14,27 @@ namespace RoboArm
             SHOULDER_ELEVATION = 1,
             ELBOW = 2,
             WRIST_TWIST = 3,
-            WRIST_ELEVAITON = 4,
+            WRIST_FLEX = 4,
             HAND = 5;
 
-        readonly float[] STARTING_ANGLES = {
+        readonly float[] STARTING_ANGLES = 
+        {
             90f,
             90f,
             145f,
             45f,
             107f,
             65f
+        };
+
+        readonly float[] SERVO_OFFSETS =
+        {
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f
         };
 
         readonly float[,] BOUNDS = {
@@ -40,15 +51,13 @@ namespace RoboArm
             public static readonly float SHOULDER = 1.5f;
             public static readonly float UPPER_ARM = 14;
             public static readonly float FOREARM = 14;
-            public static readonly float WRIST_FLEX = 4;
-            public static readonly float WRIST_TWIST = 5;
-            public static readonly float HAND = 5;
+            public static readonly float WRIST_HEIGHT = 3;
+            public static readonly float HAND = 16;
 
             public static readonly float SHOULDER_SQ = (float) Math.Pow(SHOULDER, 2);
             public static readonly float UPPER_ARM_SQ = (float)Math.Pow(UPPER_ARM, 2);
             public static readonly float FOREARM_SQ = (float)Math.Pow(FOREARM, 2);
-            public static readonly float WRIST_FLEX_SQ = (float)Math.Pow(WRIST_FLEX, 2);
-            public static readonly float WRIST_TWIST_SQ = (float) Math.Pow(WRIST_TWIST, 2);
+            public static readonly float WRIST_HEIGHT_SQ = (float) Math.Pow(WRIST_TWIST, 2);
             public static readonly float HAND_SQ = (float)Math.Pow(HAND, 2);
         }
 
@@ -74,6 +83,15 @@ namespace RoboArm
             }
         }
 
+        public void setGrip(float percent)
+        {
+            float closed = BOUNDS[HAND, 0];
+            float open = BOUNDS[HAND, 1];
+            float raw = percent * Math.Abs(open - closed) / 100;
+
+            jointAngles[HAND] = closed + raw;
+        }
+
         public bool setPose(Vector3 position, Vector3 orientation)
         {
             orientation = Vector3.Normalize(orientation);
@@ -81,11 +99,12 @@ namespace RoboArm
             Vector3 rectifiedPosition = Vector3.Add( getOrientationOffset(orientation, position), position);
 
             float forearmElevation = setPosition(rectifiedPosition);
-            setOrientation(orientation, forearmElevation);
+            setOrientation(rectifiedPosition, orientation, forearmElevation);
 
             return flushPose();
         }
 
+        //todo
         private float getLengthOfHand()
         {
             //todo: factor in grip state
@@ -96,11 +115,16 @@ namespace RoboArm
         //assumes heading is normalized
         private Vector3 getOrientationOffset(Vector3 heading, Vector3 target)
         {
-            Vector3 adjTarget = Vector3.Add(target, heading);
+            Vector3 targetToShoulder = Vector3.Normalize(Vector3.Subtract(Vector3.Zero, target));
+            Vector3 handHeightOffset = Vector3.Multiply(heading, Lengths.WRIST_HEIGHT);
 
-            Vector3 toBase = Vector3.Normalize(Vector3.Subtract(Vector3.Zero, target));
+            // two cross-products gets vector pointing to shoulder in x, y and perpendicular to target in x, d
+            Vector3 rotVec = Vector3.Cross(target, targetToShoulder);
+            Vector3 offset = Vector3.Cross(target, rotVec);
+            offset = Vector3.Normalize(offset);
+            offset = Vector3.Multiply(offset, getLengthOfHand());   // offset for hand length - dir * length = vector for offset
+            offset = Vector3.Add(offset, handHeightOffset);         // offset for hand "height" due to servos being stacked
 
-            Vector3 offset = new Vector3(0, 0, 0);
             return offset;
         }
 
@@ -115,14 +139,14 @@ namespace RoboArm
             {
                 if(xy.Y > 0)
                 {
-                    rawShoulderRot = (float) Math.PI + 180;
+                    rawShoulderRot = (float)(rawShoulderRot + Math.PI);
                 }
                 else
                 {
-                    rawShoulderRot = (float) Math.PI - 180;
+                    rawShoulderRot = (float)(rawShoulderRot - Math.PI);
                 }
             }
-            jointAngles[SHOULDER_ROTATION] = (float)Math.Atan(xy.Y / xy.X);
+            jointAngles[SHOULDER_ROTATION] = rawShoulderRot;
 
             //project onto (distZ, Z) plane
             Vector2 dz = new Vector2(distZ, position.Z);
@@ -147,11 +171,25 @@ namespace RoboArm
             return L3 - upperArmElevation - (float) Math.PI;
         }
 
-        private Vector3 setOrientation(Vector3 orientation, float forearmElevation)
+        private void setOrientation(Vector3 target, Vector3 orientation, float forearmElevation)
         {
-            Vector2 dz = 
+            Vector2 xy = new Vector2(orientation.X, orientation.Y);
+            float d = xy.Length();
+            Vector2 dz = new Vector2(d, orientation.Z);
 
-            return Vector3.Zero;
+            float handElevation = (float)Math.Acos(Vector2.Dot(dz, Vector2.UnitX) / dz.Length());
+            handElevation = (float)Math.PI / 2 - handElevation;
+
+            jointAngles[WRIST_FLEX] = handElevation - forearmElevation;
+
+            //direction to target in xy
+            Vector3 dVec = new Vector3(target.X, target.Y, 0f);
+            Vector3 crossDZ = Vector3.Cross(dVec, Vector3.UnitZ);
+
+            float handTwist = (float)Math.Acos(Vector3.Dot(orientation, crossDZ) / crossDZ.Length());
+            handTwist = (float)Math.PI - handTwist;
+
+            jointAngles[WRIST_TWIST] = handTwist;
         }
 
         private bool flushPose()
@@ -163,7 +201,7 @@ namespace RoboArm
                 {
                     float min = BOUNDS[i, 0];
                     float max = BOUNDS[i, 1];
-                    float desired = jointAngles[i];
+                    float desired = (float)(jointAngles[i] * 180/Math.PI);
 
                     //check bounds
                     if (desired < min)
