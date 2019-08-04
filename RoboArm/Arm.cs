@@ -9,6 +9,8 @@ namespace RoboArm
 {
     class Arm
     {
+        const int DEBUG_LEVEL = 10;
+
         const int
             SHOULDER_ROTATION = 0,
             SHOULDER_ELEVATION = 1,
@@ -64,6 +66,10 @@ namespace RoboArm
         private float[] jointAngles;
         private float[] servoAngles;
 
+        private Vector3 cursor = new Vector3(5,5,5);
+        private Vector3 gimbal = new Vector3(0, 0, 1);
+        private float grip = 0;
+
         public float[] getServoAngles()
         {
             lock (this)
@@ -76,15 +82,34 @@ namespace RoboArm
 
         public Arm()
         {
-            for(int i=0; i<6; i++)
+            servoAngles = new float[STARTING_ANGLES.Length];
+            jointAngles = new float[STARTING_ANGLES.Length];
+            for (int i=0; i<6; i++)
             {
                 servoAngles[i] = STARTING_ANGLES[i];
                 jointAngles[i] = STARTING_ANGLES[i];
             }
         }
 
+        public Vector3 getCursor()
+        {
+            return new Vector3(cursor.X, cursor.Y, cursor.Z);
+        }
+
+        public Vector3 getGimbal()
+        {
+            return new Vector3(gimbal.X, gimbal.Y, gimbal.Z);
+        }
+
+        public float getGrip()
+        {
+            return grip;
+        }
+
         public void setGrip(float percent)
         {
+            grip = percent;
+
             float closed = BOUNDS[HAND, 0];
             float open = BOUNDS[HAND, 1];
             float raw = percent * Math.Abs(open - closed) / 100;
@@ -95,6 +120,10 @@ namespace RoboArm
         public bool setPose(Vector3 position, Vector3 orientation)
         {
             orientation = Vector3.Normalize(orientation);
+            cursor = new Vector3(position.X, position.Y, position.Z);
+            gimbal = new Vector3(orientation.X, orientation.Y, orientation.Z); ;
+
+            debug("position: " + position.ToString(), 6);
 
             Vector3 rectifiedPosition = Vector3.Add( getOrientationOffset(orientation, position), position);
 
@@ -115,6 +144,8 @@ namespace RoboArm
         //assumes heading is normalized
         private Vector3 getOrientationOffset(Vector3 heading, Vector3 target)
         {
+            debug("---" + heading.ToString() + target.ToString(), 10);
+
             Vector3 targetToShoulder = Vector3.Normalize(Vector3.Subtract(Vector3.Zero, target));
             Vector3 handHeightOffset = Vector3.Multiply(heading, Lengths.WRIST_HEIGHT);
 
@@ -125,6 +156,7 @@ namespace RoboArm
             offset = Vector3.Multiply(offset, getLengthOfHand());   // offset for hand length - dir * length = vector for offset
             offset = Vector3.Add(offset, handHeightOffset);         // offset for hand "height" due to servos being stacked
 
+            debug("offset: " + offset.ToString(), 6);
             return offset;
         }
 
@@ -135,7 +167,8 @@ namespace RoboArm
             float distZ = xy.Length();
             
             float rawShoulderRot = (float)Math.Atan(xy.Y / xy.X);
-            if(xy.X < 0)
+            //debug("--xy: " + xy.ToString(), 10);
+            if (xy.X < 0)
             {
                 if(xy.Y > 0)
                 {
@@ -147,6 +180,7 @@ namespace RoboArm
                 }
             }
             jointAngles[SHOULDER_ROTATION] = rawShoulderRot;
+            debug("shoulder: " + rawShoulderRot, 6);
 
             //project onto (distZ, Z) plane
             Vector2 dz = new Vector2(distZ, position.Z);
@@ -197,8 +231,10 @@ namespace RoboArm
             lock (this)
             {
                 bool inBounds = true;
+                StringBuilder angles = new StringBuilder();
                 for (int i = 0; i < jointAngles.Length; i++)
                 {
+
                     float min = BOUNDS[i, 0];
                     float max = BOUNDS[i, 1];
                     float desired = (float)(jointAngles[i] * 180/Math.PI);
@@ -213,12 +249,26 @@ namespace RoboArm
                     {
                         desired = max;
                         inBounds = false;
+                    }else if (float.IsNaN(desired))
+                    {
+                        inBounds = false;
+                        desired = (max + min) / 2;
                     }
 
                     servoAngles[i] = desired;
+                    angles.Append(i + ", " + desired+" ");
                 }
 
+                debug("flush: " + angles.ToString() + " inBounds: "+inBounds+"\r\n", 5);
                 return inBounds;
+            }
+        }
+
+        private void debug(String str, int lvl)
+        {
+            if(DEBUG_LEVEL >= lvl)
+            {
+                Console.WriteLine(str);
             }
         }
     }

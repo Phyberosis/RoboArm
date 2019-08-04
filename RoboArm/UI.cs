@@ -8,11 +8,13 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Numerics;
 
 namespace RoboArm
 {
     public partial class UI : Form
     {
+        const bool SERIAL = false;
         SerialPort mSerialPort;
 
         const String mPortName = "COM4";
@@ -26,18 +28,23 @@ namespace RoboArm
         String keysDown = "";
         Arm arm = new Arm();
 
+        private bool running = true;
+
         public UI()
         {
             Control.CheckForIllegalCrossThreadCalls = false;
 
             InitializeComponent();
 
-            mSerialPort = new SerialPort(mPortName, mBaudRate, mParity, mDataBits, mStopBits);
-            mSerialPort.Close();
-            mSerialPort.DtrEnable = true;
-            mSerialPort.RtsEnable = true;
-            mSerialPort.ReceivedBytesThreshold = 1;
-            mSerialPort.Open();
+            if (SERIAL)
+            {
+                mSerialPort = new SerialPort(mPortName, mBaudRate, mParity, mDataBits, mStopBits);
+                mSerialPort.Close();
+                mSerialPort.DtrEnable = true;
+                mSerialPort.RtsEnable = true;
+                mSerialPort.ReceivedBytesThreshold = 1;
+                mSerialPort.Open();
+            }
 
             worker.DoWork += new DoWorkEventHandler(this.Async);
             worker.RunWorkerAsync();
@@ -48,25 +55,80 @@ namespace RoboArm
             return DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
         }
 
+
+
         private void Async(object sender, DoWorkEventArgs e)
         {
             var last = currentTimeMilis();
-            while (true)
+            float rate = 10;
+            bool canContinue;
+
+            lock (arm)
             {
+                canContinue = running;
+            }
+
+            while (canContinue)
+            {
+
                 lock (arm)
                 {
+                    canContinue = running;
+
+                    float dt = currentTimeMilis() - last;
                     last = currentTimeMilis();
+
                     StringBuilder angles = new StringBuilder();
+                    StringBuilder keys = new StringBuilder();
+                    String w = "w", a = "a", s = "s", d = "d";
 
-                    float[]
+                    Vector3 displacement = Vector3.Zero;
+                    float dDist = rate / dt;
 
-                    angles.Append("_").Append(index).Append(",").Append(rot).Append(";");
+                    if (keyDown(w))
+                    {
+                        keys.Append(w);
+                        displacement.Y += 1;
+                    }
+                    else if (keyDown(s))
+                    {
+                        keys.Append(s);
+                        displacement.Y -= 1;
+                    }
 
-                    //label1.Text = keys.ToString();
+                    if (keyDown(a))
+                    {
+                        keys.Append(a);
+                        displacement.X -= 1;
+                    }
+                    else if (keyDown(d))
+                    {
+                        keys.Append(d);
+                        displacement.X += 1;
+                    }
+                    //Console.WriteLine("---" + displacement);
+                    if (!displacement.Equals(Vector3.Zero))
+                    {
+                        displacement = Vector3.Normalize(displacement);
+                    }
+                    displacement = Vector3.Multiply(displacement, dDist);
+                    Vector3 target = Vector3.Add(arm.getCursor(), displacement);
+                    //Console.WriteLine("---" + arm.getCursor());
+                    arm.setPose(target, arm.getGimbal());
 
-                    //String msg = angles.ToString();
-                    //mSerialPort.Write(msg);
-                    //label2.Text = msg;
+                    float[] servoPos = arm.getServoAngles();
+
+                    for(int index=0; index<servoPos.Length; index++)
+                    {
+                        float rot = servoPos[index];
+                        angles.Append("_").Append(index).Append(",").Append(rot).Append(";");
+                    }
+
+                    label1.Text = keys.ToString();
+
+                    String msg = angles.ToString();
+                    if(SERIAL) mSerialPort.Write(msg);
+                    label2.Text = msg;
                 }
             }
         }
@@ -78,25 +140,38 @@ namespace RoboArm
 
         private bool keyDown(string k)
         {
-            k = k.ToUpper();
-            return keysDown.Contains(parseKey(k));
+            lock (keysDown)
+            {
+                return keysDown.Contains(parseKey(k));
+            }
         }
 
         private void handleKeyDown(object sender, KeyEventArgs e)
         {
-            String key = parseKey(e.KeyCode.ToString()); 
-            if(!keysDown.Contains(key))
+            lock (keysDown)
             {
-                keysDown += key;
+                String key = parseKey(e.KeyCode.ToString());
+                if (!keysDown.Contains(key))
+                {
+                    keysDown += parseKey(key);
+                }
             }
         }
 
         private void handleKeyUp(object sender, KeyEventArgs e)
         {
-            String key = parseKey(e.KeyCode.ToString());
-            if (!keysDown.Contains(key))
+            lock (keysDown)
             {
-                keysDown += key;
+                String key = parseKey(e.KeyCode.ToString());
+                keysDown = keysDown.Replace(key, "");
+            }
+        }
+
+        private void UI_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            lock (arm)
+            {
+                running = false;
             }
         }
 
