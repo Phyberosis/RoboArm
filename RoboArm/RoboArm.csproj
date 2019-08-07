@@ -48,6 +48,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Arm.cs" />
+    <Compile Include="Arm_Vectors.cs" />
     <Compile Include="UI.cs">
       <SubType>Form</SubType>
     </Compile>

@@ -149,7 +149,7 @@ namespace RoboArm
 
         private Vector3 setOrientation(Vector3 orientation, float forearmElevation)
         {
-            Vector2 dz = 
+            //Vector2 dz = 
 
             return Vector3.Zero;
         }

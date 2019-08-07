@@ -44,12 +44,12 @@ int[] startingAngles = {
 
             InitializeComponent();
 
-            mSerialPort = new SerialPort(mPortName, mBaudRate, mParity, mDataBits, mStopBits);
-            mSerialPort.Close();
-            mSerialPort.DtrEnable = true;
-            mSerialPort.RtsEnable = true;
-            mSerialPort.ReceivedBytesThreshold = 1;
-            mSerialPort.Open();
+            //mSerialPort = new SerialPort(mPortName, mBaudRate, mParity, mDataBits, mStopBits);
+            //mSerialPort.Close();
+            //mSerialPort.DtrEnable = true;
+            //mSerialPort.RtsEnable = true;
+            //mSerialPort.ReceivedBytesThreshold = 1;
+            //mSerialPort.Open();
 
             worker.DoWork += new DoWorkEventHandler(this.Async);
             worker.RunWorkerAsync();
@@ -59,6 +59,8 @@ int[] startingAngles = {
                 joints[i] = new Joint();
                 joints[i].rot = startingAngles[i];
             }
+
+            Console.WriteLine("--init--");
         }
 
         private long currentTimeMilis()
@@ -81,56 +83,23 @@ int[] startingAngles = {
             return i;
         }
 
+        Arm_Vectors arm = new Arm_Vectors();
         private void Async(object sender, DoWorkEventArgs e)
         {
             var last = currentTimeMilis();
-            while (true)
+            
+            while (false)
             {
-                lock (joints)
-                {
-                    StringBuilder keys = new StringBuilder();
-                    StringBuilder angles = new StringBuilder();
-                    var now = currentTimeMilis();
-
-                    int index = 0;
-                    foreach (Joint j in joints)
-                    {
-                        var ans = j.peek();
-                        keys.Append(ans[0]).Append(ans[1]).Append("\r\n");
-
-                        var rate = 10.0;
-                        var dt = (now - last) / 1000.0;
-                        //Console.WriteLine(dt);
-
-                        //Console.Write(ans[0]+""+ans[1] + index + "\n");
-                        //Console.Write(j.rot +":"+ index + "\n");
-                        if(ans[0])  //plus
-                        {
-                            j.rot = rectify(j.rot + (rate * dt * RSCALE));
-                        }else if (ans[1])
-                        {
-                            j.rot = rectify(j.rot - (rate * dt * RSCALE));
-                        }
-
-                        double rot = j.rot;
-                        angles.Append("_").Append(index).Append(",").Append(rot).Append(";");
-
-                        index++;
-                    }
-                    last = currentTimeMilis();
-
-                    label1.Text = keys.ToString();
-
-                    String msg = angles.ToString();
-                    mSerialPort.Write(msg);
-                    label2.Text = msg;
-                }
+                //Console.WriteLine("spin");
+                //arm.test();
             }
         }
 
         private void handleKeyDown(object sender, KeyEventArgs e)
         {
-
+            Console.WriteLine("<< test >>");
+            arm.test();
+            Console.WriteLine("<< end  >>");
         }
 
         private void handleKeyUp(object sender, KeyEventArgs e)
