@@ -14,7 +14,7 @@ namespace RoboArm
 {
     public partial class UI : Form
     {
-        const bool SERIAL = false;
+        const bool SERIAL = true;
         SerialPort mSerialPort;
 
         const String mPortName = "COM4";
@@ -26,9 +26,10 @@ namespace RoboArm
         BackgroundWorker worker = new BackgroundWorker();
 
         String keysDown = "";
-        Arm arm = new Arm();
+        Arm arm = new Arm_Trig();
 
         private bool running = true;
+        private bool stopped = false;
 
         public UI()
         {
@@ -52,15 +53,15 @@ namespace RoboArm
 
         private long currentTimeMilis()
         {
-            return DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+            return DateTime.Now.Ticks;
         }
-
-
 
         private void Async(object sender, DoWorkEventArgs e)
         {
-            var last = currentTimeMilis();
-            float rate = 10;
+            long last = currentTimeMilis();
+            const float NORM_RATE = 10;
+            float rate = NORM_RATE;
+            float range = 30;
             bool canContinue;
 
             lock (arm)
@@ -76,60 +77,140 @@ namespace RoboArm
                     canContinue = running;
 
                     float dt = currentTimeMilis() - last;
+                    dt /= 10000000f;
+                    if (dt < 0.01f) continue;
+
                     last = currentTimeMilis();
 
                     StringBuilder angles = new StringBuilder();
-                    StringBuilder keys = new StringBuilder();
-                    String w = "w", a = "a", s = "s", d = "d";
 
                     Vector3 displacement = Vector3.Zero;
-                    float dDist = rate / dt;
+                    float dDist = rate * dt;
 
-                    if (keyDown(w))
+                    //cursor
+                    if (keyDown("w"))
                     {
-                        keys.Append(w);
-                        displacement.Y += 1;
-                    }
-                    else if (keyDown(s))
-                    {
-                        keys.Append(s);
                         displacement.Y -= 1;
                     }
-
-                    if (keyDown(a))
+                    else if (keyDown("s"))
                     {
-                        keys.Append(a);
-                        displacement.X -= 1;
+                        displacement.Y += 1;
                     }
-                    else if (keyDown(d))
+
+                    if (keyDown("a"))
                     {
-                        keys.Append(d);
                         displacement.X += 1;
                     }
+                    else if (keyDown("d"))
+                    {
+                        displacement.X -= 1;
+                    }
+
+                    if (keyDown("z"))
+                    {
+                        displacement.Z -= 1;
+                    }
+                    else if (keyDown("x"))
+                    {
+                        displacement.Z += 1;
+                    }
+
+                    float gripRate = 0.02f;
+
+                    //grip
+                    if (keyDown("f"))
+                    {
+                        arm.setGrip(arm.getGrip() + gripRate);
+                    }
+                    else if (keyDown("r"))
+                    {
+                        arm.setGrip(arm.getGrip() - gripRate);
+                    }
+                    Vector3 gimbal = arm.getGimbal();
+                    Vector3 pitch = Vector3.Cross(gimbal, Vector3.UnitY);
+                    Vector3 roll = Vector3.Cross(gimbal, Vector3.UnitX);
+                    Vector3 yaw = Vector3.Cross(gimbal, Vector3.UnitZ);
+                    if (yaw.Length() == 0) yaw = roll;
+
+                    float rotRate = 0.005f;
+
+                    //gimbal
+                    if (keyDown("i"))
+                    {
+                        roll = Vector3.Multiply(Vector3.Normalize(roll), rotRate);
+                        gimbal = Vector3.Normalize(Vector3.Add(roll, gimbal));
+                    }
+                    else if (keyDown("k"))
+                    {
+                        roll = Vector3.Multiply(Vector3.Normalize(roll), -rotRate);
+                        gimbal = Vector3.Normalize(Vector3.Add(roll, gimbal));
+                    }
+
+                    if (keyDown("j"))
+                    {
+                        pitch = Vector3.Multiply(Vector3.Normalize(pitch), -rotRate);
+                        gimbal = Vector3.Normalize(Vector3.Add(pitch, gimbal));
+                    }
+                    else if (keyDown("l"))
+                    {
+                        pitch = Vector3.Multiply(Vector3.Normalize(pitch), +rotRate);
+                        gimbal = Vector3.Normalize(Vector3.Add(pitch, gimbal));
+                    }
+
+                    if (keyDown("n"))
+                    {
+                        yaw = Vector3.Multiply(Vector3.Normalize(yaw), -rotRate);
+                        gimbal = Vector3.Normalize(Vector3.Add(yaw, gimbal));
+                    }
+                    else if (keyDown("m"))
+                    {
+                        yaw = Vector3.Multiply(Vector3.Normalize(yaw), +rotRate);
+                        gimbal = Vector3.Normalize(Vector3.Add(yaw, gimbal));
+                    }
+
+                    gimbal.X = Math.Abs(gimbal.X);
+                    gimbal.Z = Math.Abs(gimbal.Z);
+
+                    if (keyDown("v")) rate = NORM_RATE / 5; else rate = NORM_RATE;
+
                     //Console.WriteLine("---" + displacement);
                     if (!displacement.Equals(Vector3.Zero))
                     {
                         displacement = Vector3.Normalize(displacement);
                     }
                     displacement = Vector3.Multiply(displacement, dDist);
-                    Vector3 target = Vector3.Add(arm.getCursor(), displacement);
+                    Vector3 cursor = arm.getCursor();
+                    Vector3 target = Vector3.Add(cursor, displacement);
+                    target.X = Math.Abs(target.X);
+
+                    if (target.Length() > range)
+                    {
+                        target = Vector3.Multiply(Vector3.Normalize(target), range);
+                    }
+
                     //Console.WriteLine("---" + arm.getCursor());
-                    arm.setPose(target, arm.getGimbal());
+                    arm.setPose(target, gimbal);
 
                     float[] servoPos = arm.getServoAngles();
 
-                    for(int index=0; index<servoPos.Length; index++)
+                    for (int index = 0; index < servoPos.Length; index++)
                     {
                         float rot = servoPos[index];
+                        if (float.IsNaN(rot)) continue;
                         angles.Append("_").Append(index).Append(",").Append(rot).Append(";");
                     }
 
-                    label1.Text = keys.ToString();
+                    label1.Text = keysDown.ToString() + " \r\n" + cursor.ToString();
 
                     String msg = angles.ToString();
-                    if(SERIAL) mSerialPort.Write(msg);
+                    if (SERIAL) mSerialPort.Write(msg);
                     label2.Text = msg;
                 }
+            }
+
+            lock (arm)
+            {
+                stopped = true;
             }
         }
 
@@ -151,9 +232,9 @@ namespace RoboArm
             lock (keysDown)
             {
                 String key = parseKey(e.KeyCode.ToString());
-                if (!keysDown.Contains(key))
+                if (!keysDown.Contains(key) && key.Length == 3)
                 {
-                    keysDown += parseKey(key);
+                    keysDown += key;
                 }
             }
         }
@@ -173,143 +254,26 @@ namespace RoboArm
             {
                 running = false;
             }
+
+            while (true)
+            {
+                lock (arm)
+                {
+                    if (stopped)
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        System.Threading.Thread.Sleep(10);
+                    }
+                }
+            }
         }
 
-        //private void UI_KeyDown(object sender, KeyEventArgs e)
-        //{
-        //    lock (joints)
-        //    {
-        //        var key = e.KeyCode;
-        //        switch (key)
-        //        {
-        //            case Keys.W:
-        //                joints[0].plus();
-        //                break;
-        //            case Keys.Q:
-        //                joints[0].minus();
-        //                break;
+        private void UI_Load(object sender, EventArgs e)
+        {
 
-        //            case Keys.S:
-        //                joints[1].plus();
-        //                break;
-        //            case Keys.A:
-        //                joints[1].minus();
-        //                break;
-
-        //            case Keys.X:
-        //                joints[2].plus();
-        //                break;
-        //            case Keys.Z:
-        //                joints[2].minus();
-        //                break;
-
-        //            case Keys.R:
-        //                joints[3].plus();
-        //                break;
-        //            case Keys.E:
-        //                joints[3].minus();
-        //                break;
-
-        //            case Keys.F:
-        //                joints[4].plus();
-        //                break;
-        //            case Keys.D:
-        //                joints[4].minus();
-        //                break;
-
-        //            case Keys.V:
-        //                joints[5].plus();
-        //                break;
-        //            case Keys.C:
-        //                joints[5].minus();
-        //                break;
-
-        //            case Keys.J:
-        //                Application.Exit();
-        //                break;
-        //            default:
-        //                break;
-        //        }
-        //    }
-        //}
-
-        //private void UI_KeyUp(object sender, KeyEventArgs e)
-        //{
-        //    lock (joints)
-        //    {
-        //        var key = e.KeyCode;
-        //        switch (key)
-        //        {
-        //            case Keys.Q:
-        //            case Keys.W:
-        //                joints[0].stop();
-        //                break;
-
-        //            case Keys.A:
-        //            case Keys.S:
-        //                joints[1].stop();
-        //                break;
-
-        //            case Keys.Z:
-        //            case Keys.X:
-        //                joints[2].stop();
-        //                break;
-
-        //            case Keys.E:
-        //            case Keys.R:
-        //                joints[3].stop();
-        //                break;
-
-        //            case Keys.D:
-        //            case Keys.F:
-        //                joints[4].stop();
-        //                break;
-
-        //            case Keys.C:
-        //            case Keys.V:
-        //                joints[5].stop();
-        //                break;
-        //            default:
-        //                break;
-        //        }
-        //    }
-        //}
-
-    }
-}
-
-class Joint
-{
-    private bool mPlus, mMinus;
-    public double rot;
-
-    public Joint()
-    {
-        mPlus = false;
-        mMinus = false;
-        rot = 0;
-    }
-
-    public bool[] peek()
-    {
-        return new bool[] { mPlus, mMinus };
-    }
-
-    public void plus()
-    {
-        mPlus = true;
-        mMinus = false;
-    }
-
-    public void minus()
-    {
-        mMinus = true;
-        mPlus = false;
-    }
-
-    public void stop()
-    {
-        mMinus = false;
-        mPlus = false;
+        }
     }
 }

@@ -59,6 +59,7 @@
             this.Controls.Add(this.label1);
             this.Name = "UI";
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.UI_FormClosing);
+            this.Load += new System.EventHandler(this.UI_Load);
             this.KeyDown += new System.Windows.Forms.KeyEventHandler(this.handleKeyDown);
             this.KeyUp += new System.Windows.Forms.KeyEventHandler(this.handleKeyUp);
             this.ResumeLayout(false);

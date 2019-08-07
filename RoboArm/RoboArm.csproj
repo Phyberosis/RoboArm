@@ -47,6 +47,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Arm_Trig.cs" />
+    <Compile Include="Arm_Vectors.cs" />
     <Compile Include="Arm.cs" />
     <Compile Include="UI.cs">
       <SubType>Form</SubType>
